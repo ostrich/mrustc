@@ -1203,6 +1203,13 @@ namespace {
                     const auto* se = src.data().opt_Function();
                     if( !se ) {
                         tmp = ::HIR::TypeRef( src.data().as_NamedFunction().decay(node.span()) );
+                        // Decay instantiates a trait method signature, whose
+                        // associated outputs may now resolve to concrete types.
+                        auto& function = tmp.data_mut().as_Function();
+                        for(auto& argument : function.m_arg_types) {
+                            m_resolve.expand_associated_types(sp, argument);
+                        }
+                        m_resolve.expand_associated_types(sp, function.m_rettype);
                         DEBUG("tmp = " << tmp);
                         DEBUG("dst = " << dst);
                         se = tmp.data().opt_Function();
