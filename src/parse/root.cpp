@@ -1450,9 +1450,13 @@ AST::Named<AST::Item> Parse_ExternBlock_Item(TokenStream& lex, const std::string
     }
 
     auto vis = Parse_Publicity(lex);
-    if( GET_TOK(tok, lex) == TOK_IDENT ) {
+    bool is_unsafe = true;
+    if( GET_TOK(tok, lex) == TOK_RWORD_UNSAFE ) {
+        // Explicit unsafe members are permitted in an unsafe extern block.
+    }
+    else if( tok.type() == TOK_IDENT ) {
         if( tok.ident() == "safe" ) {
-            // TODO: Check that the next token is TOK_RWORD_FN
+            is_unsafe = false;
         }
         else {
             PUTBACK(tok, lex);
@@ -1468,7 +1472,7 @@ AST::Named<AST::Item> Parse_ExternBlock_Item(TokenStream& lex, const std::string
         auto name = tok.ident().name;
         // parse function as prototype
         // - no self, is prototype, is unsafe and not const
-        auto i = ::AST::Item( Parse_FunctionDef(lex, /*allow_self*/false, /*can_be_prototype=*/true, abi, AST::Function::Flags::make_unsafe()) );
+        auto i = ::AST::Item( Parse_FunctionDef(lex, /*allow_self*/false, /*can_be_prototype=*/true, abi, is_unsafe ? AST::Function::Flags::make_unsafe() : AST::Function::Flags()) );
         GET_CHECK_TOK(tok, lex, TOK_SEMICOLON);
 
         return AST::Named<AST::Item> { lex.end_span(ps), mv$(meta_items), vis, mv$(name), mv$(i) };
