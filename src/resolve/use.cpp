@@ -49,7 +49,7 @@ void Resolve_Use(::AST::Crate& crate)
 }
 
 // - Convert self::/super:: paths into non-canonical absolute forms
-::AST::Path Resolve_Use_AbsolutisePath(const Span& span, const AST::Crate& crate, const ::AST::Path& base_path, ::AST::Path path)
+::AST::Path Resolve_Use_AbsolutisePath(const Span& span, const AST::Crate& crate, const ::AST::Path& base_path, ::AST::Path path, const AST::Module& mod, ::std::span<const AST::Module*> parent_modules)
 {
     TU_MATCH_HDRA( (path.m_class), {)
     TU_ARMA(Invalid, e) {
@@ -75,6 +75,14 @@ void Resolve_Use(::AST::Crate& crate)
             auto ec_it = AST::g_implicit_crates.find(name);
             if(ec_it != AST::g_implicit_crates.end())
             {
+                // Resolve the lexical type namespace before the extern prelude.
+                // Reuse its canonical binding, including imports and block scopes.
+                auto local = Resolve_Use_GetBinding_Mod(span, crate, mod.path(), mod, name, parent_modules, true);
+                if(!local.type.is_Unbound()) {
+                    AST::Path rv(local.type.path);
+                    for(size_t i = 1; i < e.nodes.size(); i++) rv += e.nodes[i];
+                    return rv;
+                }
                 DEBUG("Found implict crate " << name);
                 e.nodes.erase(e.nodes.begin());
                 return AST::Path( ec_it->second, e.nodes);
@@ -227,7 +235,7 @@ void Resolve_Use_Mod(const ::AST::Crate& crate, ::AST::Module& mod, ::AST::Path 
         {
             TRACE_FUNCTION_F(use_ent);
 
-            use_ent.path = Resolve_Use_AbsolutisePath(span, crate, path, use_ent.path);
+            use_ent.path = Resolve_Use_AbsolutisePath(span, crate, path, use_ent.path, mod, parent_modules);
             if( !use_ent.path.m_class.is_Absolute() )
                 BUG(span, "Use path is not absolute after absolutisation");
 
@@ -589,7 +597,7 @@ void Resolve_Use_Mod(const ::AST::Crate& crate, ::AST::Module& mod, ::AST::Path 
                     if( ::std::find(s_mods.begin(), s_mods.end(), &imp_e.path) == s_mods.end() )
                     {
                         s_mods.push_back(&imp_e.path);
-                        rv.merge_from( Resolve_Use_GetBinding(sp2, crate, mod.path(), Resolve_Use_AbsolutisePath(sp2, crate, mod.path(), imp_e.path), parent_modules) );
+                        rv.merge_from( Resolve_Use_GetBinding(sp2, crate, mod.path(), Resolve_Use_AbsolutisePath(sp2, crate, mod.path(), imp_e.path, mod, parent_modules), parent_modules) );
                         s_mods.pop_back();
                     }
                     else
@@ -631,7 +639,7 @@ void Resolve_Use_Mod(const ::AST::Crate& crate, ::AST::Module& mod, ::AST::Path 
                     if( ::std::find(resolve_stack_ptrs.begin(), resolve_stack_ptrs.end(), &imp_data) == resolve_stack_ptrs.end() )
                     {
                         resolve_stack_ptrs.push_back( &imp_data );
-                        bindings_ = Resolve_Use_GetBinding(sp2, crate, mod.path(), Resolve_Use_AbsolutisePath(sp2, crate, mod.path(), imp_e.path), parent_modules, /*type_only=*/true);
+                        bindings_ = Resolve_Use_GetBinding(sp2, crate, mod.path(), Resolve_Use_AbsolutisePath(sp2, crate, mod.path(), imp_e.path, mod, parent_modules), parent_modules, /*type_only=*/true);
                         if( bindings_.type.is_Unbound() ) {
                             DEBUG("Recursion detected, skipping " << imp_e.path);
                             resolve_stack_ptrs.pop_back();
