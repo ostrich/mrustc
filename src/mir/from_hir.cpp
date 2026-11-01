@@ -23,6 +23,163 @@
 #include "helpers.hpp"
 
 namespace {
+    // Lexical branch flags are reset at loop entry. Whole-place ownership,
+    // however, can be carried across a backedge. Give such places a flag whose
+    // lifetime is the function invocation, with updates at the actual moves
+    // and initializations. Projected moves require the existing field-sensitive
+    // drop elaboration and must not be folded into a whole-place flag.
+    static void elaborate_whole_place_drops(const Span& sp, const StaticTraitResolve& resolve,
+        const HIR::ItemPath& path, const HIR::TypeRef& ret_ty,
+        const HIR::Function::args_t& args, MIR::Function& fcn)
+    {
+        using Root = std::pair<bool, unsigned>;
+        struct RootInfo { bool dropped = false; bool partial = false; unsigned flag = ~0u; };
+        std::map<Root, RootInfo> roots;
+        MIR::TypeResolve types(sp, resolve, FMT_CB(os, os << path;), ret_ty, args, fcn);
+        auto root_of = [](const MIR::LValue& lv, Root& root) {
+            if(lv.m_root.is_Argument()) { root = {true, lv.m_root.as_Argument()}; return true; }
+            if(lv.m_root.is_Local()) { root = {false, lv.m_root.as_Local()}; return true; }
+            return false;
+        };
+        // The general-purpose visitor deliberately treats call operands as
+        // reads. Drop elaboration needs the ownership-transfer interpretation.
+        struct Uses: MIR::visit::Visitor {
+            std::function<void(const MIR::LValue&, MIR::visit::ValUsage)> cb;
+            Uses(decltype(cb) cb): cb(std::move(cb)) {}
+            bool visit_lvalue(const MIR::LValue& lv, MIR::visit::ValUsage usage) override {
+                cb(lv, usage);
+                return Visitor::visit_lvalue(lv, usage);
+            }
+            bool visit_terminator(const MIR::Terminator& term) override {
+                if(const auto* call = term.opt_Call()) {
+                    for(const auto& arg : call->args) visit_param(arg, MIR::visit::ValUsage::Move);
+                    // Return-place initialization belongs to the normal edge.
+                    return false;
+                }
+                return Visitor::visit_terminator(term);
+            }
+        };
+        Uses inspect([&](const auto& lv, auto usage) {
+            Root root;
+            if(root_of(lv, root) && !lv.m_wrappers.empty()
+                && usage == MIR::visit::ValUsage::Move && !types.lvalue_is_copy(lv)) {
+                roots[root].partial = true;
+            }
+        });
+        for(const auto& block : fcn.blocks) {
+            for(const auto& stmt : block.statements) {
+                if(const auto* drop = stmt.opt_Drop()) {
+                    Root root;
+                    if(root_of(drop->slot, root)) {
+                        if(drop->slot.m_wrappers.empty()) {
+                            if(drop->kind == MIR::eDropKind::DEEP) roots[root].dropped = true;
+                            else roots[root].partial = true;
+                        }
+                    }
+                }
+                else inspect.visit_stmt(stmt);
+            }
+            inspect.visit_terminator(block.terminator);
+        }
+        for(auto it = roots.begin(); it != roots.end();) {
+            auto lv = it->first.first ? MIR::LValue::new_Argument(it->first.second)
+                                     : MIR::LValue::new_Local(it->first.second);
+            if(!it->second.dropped || it->second.partial || types.lvalue_is_copy(lv)) {
+                it = roots.erase(it);
+            }
+            else {
+                it->second.flag = fcn.drop_flags.size();
+                fcn.drop_flags.push_back(it->first.first);
+                ++it;
+            }
+        }
+        if(roots.empty()) return;
+        auto flag_for = [&](const MIR::LValue& lv) -> unsigned {
+            Root root;
+            if(!lv.m_wrappers.empty() || !root_of(lv, root)) return ~0u;
+            const auto it = roots.find(root);
+            return it == roots.end() ? ~0u : it->second.flag;
+        };
+        auto set_flag = [](unsigned flag, bool value) {
+            return MIR::Statement::make_SetDropFlag({flag, value, ~0u});
+        };
+        std::vector<MIR::BasicBlock> edges;
+        const auto block_count = fcn.blocks.size();
+        for(size_t i = 0; i < block_count; i++) {
+            auto& block = fcn.blocks[i];
+            std::vector<MIR::Statement> statements;
+            for(auto& stmt : block.statements) {
+                std::vector<unsigned> moved, written;
+                Uses uses([&](const auto& lv, auto usage) {
+                    const auto flag = flag_for(lv);
+                    if(flag == ~0u) return;
+                    if(usage == MIR::visit::ValUsage::Move) moved.push_back(flag);
+                    if(usage == MIR::visit::ValUsage::Write) written.push_back(flag);
+                });
+                uses.visit_stmt(stmt);
+                if(auto* drop = stmt.opt_Drop()) {
+                    const auto flag = flag_for(drop->slot);
+                    if(flag != ~0u) drop->flag_idx = flag;
+                }
+                if(const auto* assign = stmt.opt_Assign()) {
+                    // A lexically uninitialized place can already own a value
+                    // on the next loop iteration. Emit the replacement drop
+                    // even when HIR lowering could not see that predecessor.
+                    // Consume RHS places first, so `x = x` is not a drop.
+                    for(auto flag : moved) statements.push_back(set_flag(flag, false));
+                    const auto flag = flag_for(assign->dst);
+                    if(flag != ~0u && std::find(moved.begin(), moved.end(), flag) == moved.end()) {
+                        statements.push_back(MIR::Statement::make_Drop({
+                            MIR::eDropKind::DEEP, assign->dst.clone(), flag }));
+                    }
+                    statements.push_back(std::move(stmt));
+                }
+                else {
+                    statements.push_back(std::move(stmt));
+                    for(auto flag : moved) statements.push_back(set_flag(flag, false));
+                }
+                for(auto flag : written) statements.push_back(set_flag(flag, true));
+            }
+            block.statements = std::move(statements);
+            Uses consume([&](const auto& lv, auto usage) {
+                const auto flag = flag_for(lv);
+                if(flag != ~0u && usage == MIR::visit::ValUsage::Move)
+                    block.statements.push_back(set_flag(flag, false));
+            });
+            consume.visit_terminator(block.terminator);
+            if(auto* call = block.terminator.opt_Call()) {
+                const auto flag = flag_for(call->ret_val);
+                if(flag != ~0u) {
+                    // Preserve the old destination until the call returns.
+                    // Its return place must be separate so a previously owned
+                    // value is not overwritten before its guarded drop.
+                    HIR::TypeRef tmp;
+                    auto ty = types.get_lvalue_type(tmp, call->ret_val).clone();
+                    auto result = MIR::LValue::new_Local(fcn.locals.size());
+                    fcn.locals.push_back(std::move(ty));
+                    MIR::BasicBlock edge;
+                    edge.statements.push_back(MIR::Statement::make_Drop({
+                        MIR::eDropKind::DEEP, call->ret_val.clone(), flag }));
+                    edge.statements.push_back(MIR::Statement::make_Assign({
+                        call->ret_val.clone(), MIR::RValue::make_Use(result.clone()) }));
+                    call->ret_val = std::move(result);
+                    edge.statements.push_back(set_flag(flag, true));
+                    edge.terminator = MIR::Terminator::make_Goto(call->ret_block);
+                    call->ret_block = block_count + edges.size();
+                    edges.push_back(std::move(edge));
+                }
+            }
+        }
+        for(auto& edge : edges) fcn.blocks.push_back(std::move(edge));
+        // Defaults alone are insufficient: inlining relocates them to the
+        // caller's invocation, which can contain repeated calls to this body.
+        // Explicit entry initialization is cloned with each inlined call.
+        auto& entry = fcn.blocks.at(0).statements;
+        for(const auto& root : roots) {
+            entry.insert(entry.begin(), set_flag(root.second.flag, root.first.first));
+        }
+    }
+
     class ExprVisitor_Conv:
         public MirConverter
     {
@@ -3379,6 +3536,10 @@ namespace {
             builder.final_cleanup();
         }
     }
+
+    // Coroutine frame projections and their persistent flags have already
+    // been rewritten. Only invocation-local whole places are handled here.
+    elaborate_whole_place_drops(ptr->span(), resolve, path, ret_ty, args, fcn);
 
     // NOTE: Can't clean up yet, as consteval isn't done
     //MIR_Cleanup(resolve, path, fcn, args, ret_ty);
