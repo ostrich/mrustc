@@ -317,11 +317,16 @@ impl ::std::str::FromStr for TokenStream {
                                         return err("Expected `{` after `\\u` in string literal");
                                     }
                                     let mut v = 0u32;
+                                    let mut digits = 0;
                                     loop {
                                         let d = some_else!(it.consume() => return err("str eof"));
                                         if d == '}' {
-                                            break ;
+                                            if digits == 0 { return err("Empty Unicode escape"); }
+                                            break;
                                         }
+                                        if d == '_' && digits > 0 { continue; }
+                                        digits += 1;
+                                        if digits > 6 { return err("Unicode escape too long"); }
                                         v = v * 16 + some_else!(d.to_digit(16) => return err("Invalid hex digit in `\\u` escape"));
                                     }
                                     s.push(some_else!(::std::char::from_u32(v) => return err("Invalid `\\u` escape")));
