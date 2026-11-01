@@ -936,6 +936,19 @@ namespace {
                                 : ::HIR::Compare::Equal;
                         }
                     } match_cb;
+                    // Imported RPITIT returns are synthesized associated types.
+                    // Infer their refinements with the existing signature matcher
+                    // before associated-type expansion tries to resolve them.
+                    MCB refinements;
+                    auto raw_return = ms.monomorph_type(sp, trait_fcn.m_return);
+                    raw_return.match_test_generics(sp, impl_fcn.m_return, HIR::ResolvePlaceholdersNop(), refinements);
+                    for(const auto& entry : refinements.mapping) {
+                        auto result = impl.m_types.insert(std::make_pair(entry.first,
+                            HIR::TraitImpl::ImplEnt<HIR::TypeRef> {
+                                e.second.is_specialisable, entry.second->clone() }));
+                        ASSERT_BUG(sp, result.second || result.first->second.data == *entry.second,
+                            "Conflicting refined return type for " << entry.first);
+                    }
                     const auto& exp_ret_ty1 = maybe_monomorph(trait_fcn.m_return);
                     if( !exp_ret_ty1.match_test_generics(sp, impl_fcn.m_return, HIR::ResolvePlaceholdersNop(), match_cb) ) {
                         failures.push_back(FMT(
