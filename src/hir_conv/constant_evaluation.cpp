@@ -3673,9 +3673,11 @@ namespace {
             if( expr.get() != nullptr )
             {
                 Visitor v { *this };
-                //m_recurse_types = true;
+                for(auto& ty : expr.m_bindings) {
+                    this->visit_type(ty);
+                }
                 (*expr).visit(v);
-                //m_recurse_types = false;
+                v.visit_type(expr->m_res_type);
             }
         }
 
@@ -3844,11 +3846,20 @@ void ConvertHIR_ConstantEvaluate(::HIR::Crate& crate)
     }
     crate.m_new_values.clear();
 }
-void ConvertHIR_ConstantEvaluate_Expr(const ::HIR::Crate& crate, const ::HIR::ItemPath& ip, ::HIR::ExprPtr& expr_ptr)
+void ConvertHIR_ConstantEvaluate_Expr(const ::HIR::Crate& crate, const ::HIR::ItemPath& ip, ::HIR::ExprPtr& expr_ptr, HIR::TypeRef* expected_type)
 {
     TRACE_FUNCTION_F(ip);
     // Check innards but NOT the value
     Expander    exp { crate };
+    const auto& state = *expr_ptr.m_state;
+    const HIR::ItemPath mod_path(state.m_mod_path);
+    exp.m_mod_path = &mod_path;
+    exp.m_mod = &crate.get_mod_by_path(Span(), state.m_mod_path);
+    exp.m_impl_params = state.m_impl_generics;
+    exp.m_item_params = state.m_item_generics;
+    if(expected_type) {
+        exp.visit_type(*expected_type);
+    }
     exp.visit_expr( expr_ptr );
 }
 void ConvertHIR_ConstantEvaluate_Enum(const ::HIR::Crate& crate, const ::HIR::ItemPath& ip, const ::HIR::Enum& enm)

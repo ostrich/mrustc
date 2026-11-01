@@ -2722,8 +2722,10 @@ namespace {
                     BUG(sp, "All references via imports should be replaced");
                     }
                 TU_ARMA(Constant, e) {
-                    auto ty = MonomorphStatePtr(nullptr, nullptr, &pe.m_params).monomorph_type(sp, e.m_type);
-                    auto tmp = m_builder.new_temporary( ty );
+                    // Type checking has instantiated and normalized this value.
+                    // Rebuilding from the declaration can reintroduce unevaluated
+                    // array lengths during on-demand constant promotion.
+                    auto tmp = m_builder.new_temporary( node.m_res_type );
                     m_builder.push_stmt_assign( sp, tmp.clone(), ::MIR::Constant::make_Const({box$(node.m_path.clone())}) );
                     m_builder.set_result( node.span(), mv$(tmp) );
                     }

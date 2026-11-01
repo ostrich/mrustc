@@ -1224,6 +1224,9 @@ const ::MIR::Function* HIR::Crate::get_or_gen_mir(const ::HIR::ItemPath& ip, con
                 if( ep.m_state->stage == ::HIR::ExprState::Stage::SbcRequest )
                     ERROR(Span(), E0000, "Loop in constant evaluation");
                 ep.m_state->stage = ::HIR::ExprState::Stage::SbcRequest;
+                // Type checking can introduce binding types with constant lengths.
+                // Normalize them before promotion and MIR equality checks.
+                ConvertHIR_ConstantEvaluate_Expr(*this, ip, ep_mut, &ret_ty);
                 //Debug_SetStagePre("Expand HIR Closures");
                 HIR_Expand_Closures_Expr(*this, ret_ty, ep_mut);
                 //Debug_SetStagePre("Expand HIR Statics");
