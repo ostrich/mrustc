@@ -2475,7 +2475,12 @@ namespace HIR {
                 }
             TU_ARMA(Values, ve) {
                 auto v = lit.slice( enm_repr->get_offset(state.sp, resolve, ve.field), ve.field.size).read_uint(state, 8*ve.field.size).truncate_u64();
-                auto it = std::find(ve.values.begin(), ve.values.end(), v);
+                // Repr values are stored in u64, including sign-extended negative
+                // discriminants. Compare their actual field-width bit patterns.
+                const uint64_t mask = ve.field.size >= 8 ? ~uint64_t(0)
+                    : (uint64_t(1) << (8 * ve.field.size)) - 1;
+                auto it = std::find_if(ve.values.begin(), ve.values.end(),
+                    [&](uint64_t expected) { return (expected & mask) == v; });
                 ASSERT_BUG(state.sp, it != ve.values.end(), "Invalid enum tag: " << v << " for " << ty);
                 var_idx = it - ve.values.begin();
                 }
