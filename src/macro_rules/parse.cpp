@@ -389,10 +389,10 @@ struct ContentLoopVariableUse
                     lex.getTokenCheck(TOK_PAREN_OPEN);
                     lex.getTokenIf(TOK_DOLLAR); // 1.90 (2024 edition?) requires a $
                     GET_TOK(tok, lex);
-                    if( !(tok.type() == TOK_IDENT || Token::type_is_rword(tok.type())) ) {
+                    if( !(tok.type() == TOK_IDENT || tok.type() == TOK_UNDERSCORE || Token::type_is_rword(tok.type())) ) {
                         CHECK_TOK(tok, TOK_IDENT);
                     }
-                    auto name = tok.type() == TOK_IDENT ? tok.ident().name : RcString::new_interned(tok.to_str());
+                    auto name = tok.type() == TOK_IDENT ? tok.ident().name : (tok.type() == TOK_UNDERSCORE ? RcString() : RcString::new_interned(tok.to_str()));
                     lex.getTokenCheck(TOK_PAREN_CLOSE);
                     const auto* ns = state.find_name(name);
                     if( !ns ) {
@@ -415,10 +415,10 @@ struct ContentLoopVariableUse
                     lex.getTokenCheck(TOK_PAREN_OPEN);
                     lex.getTokenIf(TOK_DOLLAR); // 1.90 (2024 edition?) requires a $
                     GET_TOK(tok, lex);
-                    if( !(tok.type() == TOK_IDENT || Token::type_is_rword(tok.type())) ) {
+                    if( !(tok.type() == TOK_IDENT || tok.type() == TOK_UNDERSCORE || Token::type_is_rword(tok.type())) ) {
                         CHECK_TOK(tok, TOK_IDENT);
                     }
-                    auto name = tok.type() == TOK_IDENT ? tok.ident().name : RcString::new_interned(tok.to_str());
+                    auto name = tok.type() == TOK_IDENT ? tok.ident().name : (tok.type() == TOK_UNDERSCORE ? RcString() : RcString::new_interned(tok.to_str()));
                     lex.getTokenCheck(TOK_PAREN_CLOSE);
                     const auto* ns = state.find_name(name);
                     if( !ns ) {
@@ -497,10 +497,10 @@ struct ContentLoopVariableUse
             {
                 ret.push_back( MacroExpansionEnt(NAMEDVALUE_MAGIC_CRATE) );
             }
-            else if( tok.type() == TOK_IDENT || Token::type_is_rword(tok.type()) )
+            else if( tok.type() == TOK_IDENT || tok.type() == TOK_UNDERSCORE || Token::type_is_rword(tok.type()) )
             {
                 // Look up the named parameter in the list of param names for this arm
-                auto name = tok.type() == TOK_IDENT ? tok.ident().name : RcString::new_interned(tok.to_str());
+                auto name = tok.type() == TOK_IDENT ? tok.ident().name : (tok.type() == TOK_UNDERSCORE ? RcString() : RcString::new_interned(tok.to_str()));
                 const auto* ns = state.find_name(name);
                 if( !ns )
                 {
