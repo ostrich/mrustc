@@ -2662,7 +2662,17 @@ public:
         if(e.second.is_MacroRules() ) {
             ASSERT_BUG(Span(), !e.second.as_MacroRules()->m_rules.empty(), "Empty macro? - " << e.first);
         }
-        rv.m_root_module.m_macro_items.insert( ::std::make_pair(e.first, box$(HIR::VisEnt<HIR::MacroItem> { HIR::Publicity::new_global(), mv$(e.second) })) );
+        // A local procedural macro shadows an implicit prelude import with
+        // the same name (e.g. an attribute macro named `derive`). Plain insert
+        // silently retained the private imported macro instead of our export.
+        auto existing = rv.m_root_module.m_macro_items.find(e.first);
+        if(e.second.is_ProcMacro() && existing != rv.m_root_module.m_macro_items.end()) {
+            ASSERT_BUG(Span(), !existing->second->publicity.is_global(), "Conflicting public macro export: " << e.first);
+            existing->second = box$(HIR::VisEnt<HIR::MacroItem> { HIR::Publicity::new_global(), mv$(e.second) });
+        }
+        else {
+            rv.m_root_module.m_macro_items.insert( ::std::make_pair(e.first, box$(HIR::VisEnt<HIR::MacroItem> { HIR::Publicity::new_global(), mv$(e.second) })) );
+        }
     }
 
     LowerHIR_Module_Impls(crate.m_root_module,  rv);

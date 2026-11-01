@@ -711,9 +711,10 @@ public:
         RcString   name;   // Can be different, if `use foo as bar` is used
         AST::AbsolutePath   path;
         MacroRef    ref;
+        bool is_path_import = false; // `use`, rather than textual #[macro_use] scope
 
         MacroImport clone() const {
-            return MacroImport { is_pub, name, path, ref.clone() };
+            return MacroImport { is_pub, name, path, ref.clone(), is_path_import };
         }
     };
     ::std::vector<MacroImport>  m_macro_imports;

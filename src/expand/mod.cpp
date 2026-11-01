@@ -138,7 +138,14 @@ void Expand_Attr(const ExpandState& es, const Span& sp, const ::AST::Attribute& 
         return ;
     }
     DEBUG(a);
+    // A locally imported attribute macro can shadow the built-in derive.
+    // Its arguments are arbitrary tokens, not necessarily trait paths.
+    const bool custom_derive = a.name() == "derive" &&
+        Expand_LookupMacro(sp, es.crate, es.modstack, a.name()).is_ExternalProcMacro();
     for( auto& d : g_decorators ) {
+        if(custom_derive) {
+            break;
+        }
         if( a.name() == d.first
         // HACK: Handle `::core::prelude::v1::<FOO>`
         || (a.name().elems.size() == 4 && a.name().elems[0] == "core" && a.name().elems[1] == "prelude" && a.name().elems[2] == "v1" && a.name().elems[3] == d.first)
@@ -383,6 +390,8 @@ MacroRef Expand_LookupMacro(const Span& mi_span, const ::AST::Crate& crate, LLis
     {
         const auto& name = path.as_trivial();
 
+        // Textual macro scope crosses named modules, path imports do not.
+        bool path_imports_visible = true;
         // Iterate up the module tree, using the first located macro
         for(const auto* ll = &modstack; ll; ll = ll->m_prev)
         {
@@ -406,6 +415,7 @@ MacroRef Expand_LookupMacro(const Span& mi_span, const ::AST::Crate& crate, LLis
             for( const auto& mri : mac_mod.m_macro_imports )
             {
                 //DEBUG("- " << mri.name);
+                if(mri.is_path_import && !path_imports_visible) continue;
                 if( mri.name == name )
                 {
                     DEBUG("?::" << mri.name << " - Imported");
@@ -416,6 +426,7 @@ MacroRef Expand_LookupMacro(const Span& mi_span, const ::AST::Crate& crate, LLis
             {
                 return rv;
             }
+            if(!mac_mod.is_anon()) path_imports_visible = false;
         }
         // Search compiler-provided proc macros (after locals)
         if(auto* pm = Expand_FindProcMacro(name))
@@ -1977,6 +1988,7 @@ void Expand_Mod(const ExpandState& es, ::AST::AbsolutePath modpath, ::AST::Modul
             if( es.modstack.m_prev )
             {
                 for(const auto& mac : es.modstack.m_prev->m_item->m_macro_imports) {
+                    if(mac.is_path_import && !mod.is_anon()) continue;
                     mod.m_macro_imports.push_back(mac.clone());
                     DEBUG(mod.path() << " + Import import " << mac.name << " = '" << mod.m_macro_imports.back().path << "'");
                 }
@@ -2182,7 +2194,7 @@ void Expand_Mod(const ExpandState& es, ::AST::AbsolutePath modpath, ::AST::Modul
                     }
                     if( ! ref.is_None() ) {
                         DEBUG(mod.path() << " + Macro Import: " << ref_path);
-                        mod.m_macro_imports.push_back(AST::Module::MacroImport { false, ue.name, std::move(ref_path), std::move(ref) });
+                        mod.m_macro_imports.push_back(AST::Module::MacroImport { false, ue.name, std::move(ref_path), std::move(ref), true });
                     }
                 }
             }
