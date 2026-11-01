@@ -312,6 +312,7 @@ impl ::std::str::FromStr for TokenStream {
                                     s.push(some_else!(::std::char::from_u32(v) => return err("Invalid `\\x` escape")));
                                     },
                                 'u' => {
+                                    if is_byte { return err("Unicode escape in byte string"); }
                                     if it.consume() != Some('{') {
                                         return err("Expected `{` after `\\u` in string literal");
                                     }
@@ -335,13 +336,16 @@ impl ::std::str::FromStr for TokenStream {
                                 }
                             }
                             else {
+                                if is_byte && c > '\x7f' { return err("Non-ASCII byte string"); }
                                 s.push(c);
                             }
                         }
                         rv.push(Literal {
                             span: crate::Span::call_site(),
                             val: if is_byte {
-                                crate::token_tree::LiteralValue::ByteString(s.into_bytes())
+                                // Source characters are ASCII and x escapes are
+                                // single bytes, not their UTF-8 encodings.
+                                crate::token_tree::LiteralValue::ByteString(s.chars().map(|c| c as u8).collect())
                             } else {
                                 crate::token_tree::LiteralValue::String(s)
                             }
