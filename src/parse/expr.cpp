@@ -1522,6 +1522,11 @@ ExprNodeP Parse_ExprVal_Inner(TokenStream& lex)
                 } while( GET_TOK(tok, lex) == TOK_COMMA );
                 rv = NEWNODE( AST::ExprNode_Tuple, ::std::move(ents) );
             }
+            else {
+                // Macro fragment matching distinguishes `(1)` from `1` even
+                // though their evaluated expressions have the same meaning.
+                rv->set_parenthesised();
+            }
             CHECK_TOK(tok, TOK_PAREN_CLOSE);
             return rv;
         }

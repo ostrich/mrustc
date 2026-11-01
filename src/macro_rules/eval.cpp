@@ -17,6 +17,40 @@
 #include <ast/crate.hpp>
 #include <hir/hir.hpp>  // HIR::Crate
 
+static bool is_literal_token(eTokenType type)
+{
+    switch(type)
+    {
+    case TOK_INTEGER: case TOK_FLOAT: case TOK_STRING: case TOK_BYTESTRING:
+    case TOK_CSTRING: case TOK_RWORD_TRUE: case TOK_RWORD_FALSE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Fragment matching is syntactic: `-true` can match :literal even though
+// using it as an expression would subsequently fail type checking.
+static bool is_literal_value(const AST::ExprNode& node)
+{
+    return !node.is_parenthesised() &&
+        (dynamic_cast<const AST::ExprNode_Integer*>(&node) ||
+         dynamic_cast<const AST::ExprNode_Float*>(&node) ||
+         dynamic_cast<const AST::ExprNode_Bool*>(&node) ||
+         dynamic_cast<const AST::ExprNode_String*>(&node) ||
+         dynamic_cast<const AST::ExprNode_ByteString*>(&node) ||
+         dynamic_cast<const AST::ExprNode_CString*>(&node));
+}
+static bool is_literal_expression(const AST::ExprNode& node)
+{
+    if(node.is_parenthesised()) return false;
+    if(is_literal_value(node)) return true;
+    if(const auto* op = dynamic_cast<const AST::ExprNode_UniOp*>(&node)) {
+        return op->m_type == AST::ExprNode_UniOp::NEGATE && is_literal_value(*op->m_value);
+    }
+    return false;
+}
+
  // Map of: LoopIndex=>(Path=>Count)
 typedef std::map<unsigned, std::map< std::vector<unsigned>, unsigned > >    loop_counts_t;
 
@@ -580,31 +614,21 @@ InterpolatedFragment Macro_HandlePatternCap(TokenStream& lex, MacroPatEnt::Type 
         return InterpolatedFragment( TokenTree(lex.get_edition(), lex.get_hygiene(), tok) );
     case MacroPatEnt::PAT_LITERAL:
         GET_TOK(tok, lex);
+        if(tok.type() == TOK_INTERPOLATED_EXPR && is_literal_expression(tok.frag_node())) {
+            return InterpolatedFragment(InterpolatedFragment::EXPR, tok.take_frag_node().release());
+        }
         if(tok.type() == TOK_DASH) {
-            std::vector<TokenTree>  toks;
-            switch(lex.lookahead(0)) {
-            case TOK_INTEGER:
-            case TOK_FLOAT:
-                toks.push_back(tok);
-                break;
-            default:
-                throw ParseError::Unexpected(lex, tok, {TOK_INTEGER, TOK_FLOAT});
+            if(!is_literal_token(lex.lookahead(0))) {
+                throw ParseError::Unexpected(lex, tok, {TOK_INTEGER, TOK_FLOAT, TOK_STRING, TOK_BYTESTRING, TOK_CSTRING, TOK_RWORD_TRUE, TOK_RWORD_FALSE});
             }
+            std::vector<TokenTree> toks;
+            toks.push_back(tok);
             GET_TOK(tok, lex);
             toks.push_back(tok);
             return InterpolatedFragment( TokenTree(lex.get_edition(), lex.get_hygiene(), std::move(toks)) );
         }
-        switch(tok.type())
-        {
-        case TOK_INTEGER:
-        case TOK_FLOAT:
-        case TOK_STRING:
-        case TOK_BYTESTRING:
-        case TOK_RWORD_TRUE:
-        case TOK_RWORD_FALSE:
-            break;
-        default:
-            throw ParseError::Unexpected(lex, tok, {TOK_INTEGER, TOK_FLOAT, TOK_STRING, TOK_BYTESTRING, TOK_RWORD_TRUE, TOK_RWORD_FALSE});
+        if(!is_literal_token(tok.type())) {
+            throw ParseError::Unexpected(lex, tok, {TOK_INTEGER, TOK_FLOAT, TOK_STRING, TOK_BYTESTRING, TOK_CSTRING, TOK_RWORD_TRUE, TOK_RWORD_FALSE});
         }
         return InterpolatedFragment( TokenTree(lex.get_edition(), lex.get_hygiene(), tok) );
     }
@@ -1297,6 +1321,7 @@ namespace
             case TOK_FLOAT:
             case TOK_STRING:
             case TOK_BYTESTRING:
+            case TOK_CSTRING:
             case TOK_RWORD_TRUE:
             case TOK_RWORD_FALSE:
                 lex.consume();
@@ -1982,32 +2007,25 @@ namespace
         case MacroPatEnt::PAT_LIFETIME:
             return lex.consume_if(TOK_LIFETIME);
         case MacroPatEnt::PAT_LITERAL:
-            switch(lex.next())
-            {
-            case TOK_DASH: {
-                auto tmp = lex.clone();
-                tmp.consume();
-                switch(tmp.next()) {
-                case TOK_INTEGER:
-                case TOK_FLOAT:
-                    lex.consume();
-                    lex.consume();
-                    return true;
-                default:
+            if(lex.next() == TOK_INTERPOLATED_EXPR) {
+                auto token = lex.next_tok().clone();
+                if(!is_literal_expression(token.frag_node())) {
                     return false;
                 }
-                } break;
-            case TOK_INTEGER:
-            case TOK_FLOAT:
-            case TOK_STRING:
-            case TOK_BYTESTRING:
-            case TOK_RWORD_TRUE:
-            case TOK_RWORD_FALSE:
                 lex.consume();
                 return true;
-            default:
-                return false;
             }
+            if(lex.next() == TOK_DASH) {
+                auto tmp = lex.clone();
+                tmp.consume();
+                if(!is_literal_token(tmp.next())) return false;
+                lex.consume();
+                lex.consume();
+                return true;
+            }
+            if(!is_literal_token(lex.next())) return false;
+            lex.consume();
+            return true;
         }
         return true;
     }

@@ -89,11 +89,12 @@ ExprNode::~ExprNode() {
 #define OPT_CLONE(node) (node.get() ? node->clone() : ::AST::ExprNodeP())
 
 namespace {
-    static inline ExprNodeP mk_exprnodep(const Span& pos, AST::ExprNode* en) {
-        en->set_span(pos);
+    static inline ExprNodeP mk_exprnodep(const ExprNode& original, AST::ExprNode* en) {
+        en->set_span(original.span());
+        if( original.is_parenthesised() ) en->set_parenthesised();
         return ExprNodeP(en);
     }
-    #define NEWNODE(type, ...)  mk_exprnodep(span(), new type(__VA_ARGS__))
+    #define NEWNODE(type, ...)  mk_exprnodep(*this, new type(__VA_ARGS__))
 }
 
 NODE(ExprNode_Block, {

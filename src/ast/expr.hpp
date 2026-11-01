@@ -28,12 +28,16 @@ class ExprNode
 {
     AttributeList   m_attrs;
     Span    m_span;
+    bool m_is_parenthesised = false;
 public:
     virtual ~ExprNode() = 0;
 
     virtual void visit(NodeVisitor& nv) = 0;
     virtual void print(::std::ostream& os) const = 0;
     virtual ExprNodeP clone() const = 0;
+
+    bool is_parenthesised() const { return m_is_parenthesised; }
+    void set_parenthesised() { m_is_parenthesised = true; }
 
     void set_span(Span s) { m_span = ::std::move(s); }
     const Span& span() const { return m_span; }
