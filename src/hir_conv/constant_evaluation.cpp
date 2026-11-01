@@ -536,6 +536,7 @@ namespace MIR { namespace eval {
         }
 
         const ::HIR::Path& path() const { return m_path; }
+        bool has_value() const { return m_encoded != nullptr; }
     };
 #if 0   // TODO: Add this sometime?
     class InlineValue
@@ -1245,6 +1246,15 @@ namespace MIR { namespace eval {
                         metadata = val.slice(Target_GetPointerBits()/8);
                     }
                     auto p = val.read_ptr(state);
+                    // Serialized static relocations initially carry only a path.
+                    // Resolve the referent before sizing or reading its storage.
+                    if(const auto* sr = p.second.as_staticref()) {
+                        auto resolved = get_staticref(sr->path().clone());
+                        if(!resolved->has_value()) {
+                            throw Defer(); // External storage cannot be read at compile time.
+                        }
+                        p.second = RelocPtr(std::move(resolved));
+                    }
                     MIR_ASSERT(state, p.first >= EncodedLiteral::PTR_BASE, "Null (<PTR_BASE) pointer deref");
                     MIR_ASSERT(state, p.first % al == 0, "Unaligned pointer deref");
                     DEBUG("> " << ValueRef(p.second) << " - o=" << (p.first - EncodedLiteral::PTR_BASE) << " sz=" << sz << " " << *typ);
