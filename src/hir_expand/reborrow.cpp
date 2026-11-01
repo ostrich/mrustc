@@ -65,7 +65,14 @@ namespace {
                         )
                     {
                         if( auto* inner = dynamic_cast< ::HIR::ExprNode_Deref*>(node_ptr.get()) ) {
-                            inner->m_value->m_usage = HIR::ValueUsage::Mutate;
+                            // Reborrowing a nested dereference needs mutable
+                            // access through the entire place chain. Usage was
+                            // annotated before this implicit borrow was added.
+                            HIR::ExprNode* place = inner;
+                            while(auto* deref = dynamic_cast<HIR::ExprNode_Deref*>(place)) {
+                                deref->m_value->m_usage = HIR::ValueUsage::Mutate;
+                                place = deref->m_value.get();
+                            }
                         }
                         DEBUG("Insert reborrow - " << node_ptr->span() << " - type=" << node_ptr->m_res_type);
                         auto sp = node_ptr->span();
