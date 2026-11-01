@@ -921,7 +921,7 @@ AST::Trait Parse_TraitDef(TokenStream& lex, const AST::AttributeList& meta_items
             if( GET_TOK(tok, lex) == TOK_LIFETIME ) {
                 lifetimes.push_back( GET_SPANNED(AST::LifetimeRef, lex, ::AST::LifetimeRef(tok.ident()) ) );
             }
-            else if( tok.type() == TOK_BRACE_OPEN ) {
+            else if( tok.type() == TOK_BRACE_OPEN || tok.type() == TOK_RWORD_WHERE ) {
                 break;
             }
             else {
