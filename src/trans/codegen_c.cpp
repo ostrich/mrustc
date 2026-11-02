@@ -2456,17 +2456,64 @@ namespace {
             m_of << "}\n";
         }
 
-        // Returns `true` if the type is pointer-aligned (i.e. it could contain a pointer)
-        bool emit_static_ty(const HIR::TypeRef& type, const ::HIR::Path& p, bool is_proto)
+        enum class StaticRawKind { Bytes, Words, Relocations };
+
+        void emit_static_relocation(const Reloc& reloc, uint64_t value)
+        {
+            value -= EncodedLiteral::PTR_BASE;
+            m_of << "(uintptr_t)";
+            if( reloc.p ) {
+                if( reloc.p->m_data.is_UfcsInherent() && reloc.p->m_data.as_UfcsInherent().item == "#type_id" ) {
+                    const auto& ty = reloc.p->m_data.as_UfcsInherent().type;
+                    m_of << "&__typeid_" << Trans_Mangle(ty);
+                }
+                else {
+                    m_of << "&" << Trans_Mangle(*reloc.p);
+                }
+            }
+            else {
+                print_escaped_string(reloc.bytes);
+            }
+            if( value > 0 ) m_of << "+" << value;
+        }
+
+        // A raw pointer-word array cannot represent relocations at halfword
+        // offsets, or trailing bytes after a word. Use exact packed fields on
+        // statics whose relocation offsets or storage cannot use pointer words.
+        StaticRawKind emit_static_ty(const HIR::TypeRef& type, const ::HIR::Path& p,
+                                     bool is_proto, const EncodedLiteral* encoded = nullptr)
         {
             size_t size = 0, align = 0;
             Target_GetSizeAndAlignOf(sp, m_resolve, type, size, align);
-            bool rv = ( align * 8 >= Target_GetCurSpec().m_arch.m_pointer_bits );
+            auto ptr_size = Target_GetCurSpec().m_arch.m_pointer_bits / 8;
+            auto kind = align >= ptr_size ? StaticRawKind::Words : StaticRawKind::Bytes;
+            if( m_compiler == Compiler::Gcc
+                && encoded && !encoded->relocations.empty()
+                && (align < ptr_size || size % ptr_size != 0
+                    || ::std::any_of(encoded->relocations.begin(), encoded->relocations.end(),
+                        [&](const Reloc& r) { return r.ofs % ptr_size != 0; })) )
+                kind = StaticRawKind::Relocations;
             m_of << "union u_static_" << Trans_Mangle(p);
             if(is_proto) {
-                m_of << "{ "; emit_ctype( type, FMT_CB(ss, ss << "val";) ); m_of << "; ";
-                if( rv ) {
-                    m_of << "uintptr_t raw[" << (size / (Target_GetCurSpec().m_arch.m_pointer_bits / 8)) << "];";
+                m_of << "{ "; emit_ctype(type, FMT_CB(ss, ss << "val";)); m_of << "; ";
+                if( kind == StaticRawKind::Relocations ) {
+                    m_of << "struct __attribute__((packed)) { ";
+                    size_t cursor = 0;
+                    for( const auto& reloc : encoded->relocations ) {
+                        MIR_ASSERT(*m_mir_res, reloc.ofs >= cursor && reloc.ofs <= size,
+                                   "Invalid or overlapping static relocation");
+                        MIR_ASSERT(*m_mir_res, reloc.len == ptr_size && reloc.len <= size - reloc.ofs,
+                                   "Invalid static relocation width");
+                        if( cursor < reloc.ofs )
+                            m_of << "uint8_t b" << cursor << "[" << reloc.ofs - cursor << "]; ";
+                        m_of << "uintptr_t p" << reloc.ofs << "; ";
+                        cursor = reloc.ofs + reloc.len;
+                    }
+                    if( cursor < size ) m_of << "uint8_t b" << cursor << "[" << size - cursor << "]; ";
+                    m_of << "} raw;";
+                }
+                else if( kind == StaticRawKind::Words ) {
+                    m_of << "uintptr_t raw[" << (size / ptr_size) << "];";
                 }
                 else {
                     m_of << "uint8_t raw[" << size << "];";
@@ -2474,7 +2521,7 @@ namespace {
                 m_of << " }";
             }
             m_of << " " << Trans_Mangle(p);
-            return rv;
+            return kind;
         }
 
         void emit_static_ext(const ::HIR::Path& p, const ::HIR::Static& item, const Trans_Params& params) override
@@ -2596,7 +2643,7 @@ namespace {
             if( item.m_params.is_generic() ) {
                 m_of << "static ";
             }
-            emit_static_ty(type, p, /*is_proto=*/true);
+            emit_static_ty(type, p, /*is_proto=*/true, &item.m_value_res);
             m_of << ";";
             m_of << "\t// static " << p << " : " << type;
             m_of << "\n";
@@ -2617,11 +2664,31 @@ namespace {
                 if( item.m_params.is_generic() ) {
                     m_of << "static ";
                 }
-                bool is_packed = emit_static_ty(type, p, /*is_proto=*/false);
+                auto storage = emit_static_ty(type, p, /*is_proto=*/false, &encoded);
                 m_of << " = ";
 
                 m_of << "{ .raw = {";
-                if( is_packed ) {
+                if( storage == StaticRawKind::Relocations ) {
+                    auto emit_bytes = [&](size_t begin, size_t end) {
+                        if( begin == end ) return;
+                        m_of << ".b" << begin << " = {";
+                        for( auto i = begin; i < end; ++i ) {
+                            if( i != begin ) m_of << ",";
+                            m_of << unsigned(encoded.bytes[i]);
+                        }
+                        m_of << "},";
+                    };
+                    size_t cursor = 0;
+                    for( const auto& reloc : encoded.relocations ) {
+                        emit_bytes(cursor, reloc.ofs);
+                        m_of << ".p" << reloc.ofs << " = ";
+                        emit_static_relocation(reloc, encoded.read_usize(reloc.ofs));
+                        m_of << ",";
+                        cursor = reloc.ofs + reloc.len;
+                    }
+                    emit_bytes(cursor, encoded.bytes.size());
+                }
+                else if( storage == StaticRawKind::Words ) {
                     DEBUG("encoded.bytes = `" << FMT_CB(ss, for(auto& b: encoded.bytes) ss << std::setw(2) << std::setfill('0') << std::hex << unsigned(b) << (int(&b - encoded.bytes.data()) % 8 == 7 ? " " : "");) << "`");
                     DEBUG("encoded.relocations = " << encoded.relocations);
                     auto reloc_it = encoded.relocations.begin();
