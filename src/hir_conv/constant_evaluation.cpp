@@ -2518,7 +2518,7 @@ namespace HIR {
             TU_ARMA(Unsigned, vals) {
                 auto v = lit.read_uint(state, ti.bits);
                 for(size_t i = 0; i < vals.size(); i ++) {
-                    if(v == vals[i]) {
+                    if(v == U128(vals[i])) {
                         target_idx = i;
                         break;
                     }
