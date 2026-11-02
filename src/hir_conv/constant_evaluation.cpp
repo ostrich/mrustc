@@ -929,7 +929,7 @@ namespace {
 
             case ::HIR::CoreType::Isize: return TypeInfo { Signed  , Target_GetPointerBits() };
             case ::HIR::CoreType::Usize: return TypeInfo { Unsigned, Target_GetPointerBits() };
-            case ::HIR::CoreType::Char: return TypeInfo { Unsigned, 21 };
+            case ::HIR::CoreType::Char: return TypeInfo { Unsigned, 32 };
             case ::HIR::CoreType::Bool: return TypeInfo { Unsigned, 1 };
 
 
