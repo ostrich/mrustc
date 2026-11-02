@@ -417,7 +417,11 @@ namespace MIR { namespace eval {
             return RelocPtr();
         }
         void set_reloc(size_t ofs, RelocPtr ptr) override {
-            assert(ofs % (Target_GetPointerBits()/8) == 0);
+            // Packed fields and targets such as m68k can place a pointer at
+            // an offset smaller than its width. Relocations are byte-indexed;
+            // require storage bounds, not natural pointer-width alignment.
+            const auto width = Target_GetPointerBits()/8;
+            assert(ofs <= length && width <= length - ofs);
             auto it = std::lower_bound(this->relocations.begin(), this->relocations.end(), ofs, [](const Reloc& r, size_t ofs){ return r.offset < ofs; });
             if(it != this->relocations.end() && it->offset == ofs) {
                 if(ptr)
