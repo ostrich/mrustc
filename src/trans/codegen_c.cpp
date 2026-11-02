@@ -332,6 +332,8 @@ namespace {
                 << "typedef struct { void* PTR; void* META; } TRAITOBJ_PTR;\n"
                 << "typedef struct { void (*drop)(void*); size_t size; size_t align; } VTABLE_HDR;\n"
                 ;
+            bool pack_zst = Target_GetCurSpec().m_backend_c.m_aggregate_min_align > 1;
+            if( pack_zst ) m_of << "#pragma pack(push, 1)\n";
             if( m_options.disallow_empty_structs )
             {
                 m_of
@@ -348,6 +350,7 @@ namespace {
                     << "typedef struct { } tTYPEID;\n"
                     ;
             }
+            if( pack_zst ) m_of << "#pragma pack(pop)\n";
             m_of
                 << "static inline size_t ALIGN_TO(size_t s, size_t a) { return (s + a-1) / a * a; }\n"
                 << "\n"

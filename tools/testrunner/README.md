@@ -45,3 +45,8 @@ explicit alignment and tighter Rust/transparent/array layouts. Test a floor
 above one with a compiler whose C ABI has that floor, not a host compiler with
 an artificial setting. Packed/aligned unions remain an existing front-end
 limitation; this option does not add their missing attribute representation.
+
+The `unit` case includes emitted C to inspect the internal unit and type-id
+placeholders. It asserts the existing GNU backend policy of one-byte storage
+and one-byte alignment, even with a larger native C aggregate floor. This is
+separate from Rust's zero-sized type size and alignment queries.
