@@ -964,6 +964,14 @@ namespace static_borrow_constants {
                 auto* value_ptr_ptr = &node.m_value;
                 for(;;)
                 {
+                    // Preserve the containing place's alignment and field offset.
+                    // Promoting only the projected value loses repr(align) on
+                    // wrappers used for aligned byte/control buffers.
+                    if(auto* inner_node = dynamic_cast<::HIR::ExprNode_Field*>(value_ptr_ptr->get()))
+                    {
+                        value_ptr_ptr = &inner_node->m_value;
+                        continue;
+                    }
                     if(auto* inner_node = dynamic_cast<::HIR::ExprNode_Index*>(value_ptr_ptr->get()))
                     {
                         value_ptr_ptr = &inner_node->m_value;
@@ -981,8 +989,13 @@ namespace static_borrow_constants {
                 if(auto* inner_node = dynamic_cast<::HIR::ExprNode_Deref*>(value_ptr_ptr->get()))
                 {
                     (void)inner_node;
-                    BUG(node.span(), "Unexpected inner being deref?");
+                    // The reference already owns the storage and alignment.
+                    // Retain its dereference and projections without promoting.
                     return ;
+                }
+                if(auto* path = dynamic_cast<HIR::ExprNode_PathValue*>(value_ptr.get())) {
+                    if(path->m_target == HIR::ExprNode_PathValue::STATIC)
+                        return; // Preserve the identity of an existing static.
                 }
                 auto usage = value_ptr->m_usage;
 
