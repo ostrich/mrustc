@@ -642,7 +642,7 @@ namespace MIR { namespace eval {
         void write_float(const MIR::TypeResolve& state, unsigned bits, double v) {
             switch(bits)
             {
-            case 16: { F16 v_f = v; write_bytes(state, &v_f, sizeof(v_f)); } break;
+            case 16: { F16 v_f = F16::from_double(v); write_bytes(state, &v_f, sizeof(v_f)); } break;
             case 32: { float f = v; uint32_t bits; memcpy(&bits, &f, 4); write_uint(state, 32, uint64_t(bits)); } break;
             case 64: { uint64_t bits; memcpy(&bits, &v, 8); write_uint(state, 64, bits); } break;
             case 128: { F128 v_f128 = v; write_bytes(state, &v_f128, 16); } break;
