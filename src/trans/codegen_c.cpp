@@ -1815,6 +1815,10 @@ namespace {
         // Shared logic between `emit_struct` and `emit_type` (w/ Tuple)
         void emit_struct_inner(const ::HIR::TypeRef& ty, const TypeRepr* repr, unsigned packing_max_align)
         {
+            // Rust/transparent layouts can be tighter than the C aggregate
+            // minimum. Pack only in that case; preserve ordinary field alignment.
+            if( packing_max_align == 0 && repr->align < Target_GetCurSpec().m_backend_c.m_aggregate_min_align )
+                packing_max_align = 1;
             // Fill `fields` with ascending indexes (for sorting)
             // AND: Determine if the type has a a zero-sized item that has an alignment equal to the structure's alignment
             ::std::vector<unsigned> fields; fields.reserve(repr->fields.size());
@@ -2035,13 +2039,20 @@ namespace {
                 m_of << " // " << ty << "\n";
                 }
             TU_ARMA(NamedFunction, te) {
+                bool adjust_pack = Target_GetCurSpec().m_backend_c.m_aggregate_min_align > 1;
+                if( adjust_pack ) m_of << "#pragma pack(push, 1)\n";
                 m_of << "typedef struct "; emit_ctype(ty); m_of << " {";
                 if( m_options.disallow_empty_structs ) {
                     m_of << " char _unused; ";
                 }
                 m_of << "} "; emit_ctype(ty); m_of << ";\n";
+                if( adjust_pack ) m_of << "#pragma pack(pop)\n";
                 }
             TU_ARMA(Array, te) {
+                size_t array_align;
+                Target_GetAlignOf(sp, m_resolve, ty, array_align);
+                bool adjust_pack = array_align < Target_GetCurSpec().m_backend_c.m_aggregate_min_align;
+                if( adjust_pack ) m_of << "#pragma pack(push, 1)\n";
                 m_of << "typedef ";
                 size_t align;
                 if( te.size.as_Known() == 0 ) {
@@ -2094,6 +2105,7 @@ namespace {
                 }
                 emit_ctype(ty); m_of << ";";
                 m_of << " // " << ty << "\n";
+                if( adjust_pack ) m_of << "#pragma pack(pop)\n";
                 }
             TU_ARMA(ErasedType, te) {
                 // TODO: Is this actually a bug?
@@ -2140,6 +2152,8 @@ namespace {
             const auto* repr = Target_GetTypeRepr(sp, m_resolve, item_ty);
             MIR_ASSERT(*m_mir_res, repr != nullptr, "No repr for union " << item_ty);
 
+            bool adjust_pack = repr->align < Target_GetCurSpec().m_backend_c.m_aggregate_min_align;
+            if( adjust_pack ) m_of << "#pragma pack(push, 1)\n";
             m_of << "union u_" << Trans_Mangle(p) << " {\n";
             for(unsigned int i = 0; i < repr->fields.size(); i ++)
             {
@@ -2152,6 +2166,7 @@ namespace {
                 m_of << "typedef char sizeof_assert_" << Trans_Mangle(p) << "[ (sizeof(union u_" << Trans_Mangle(p) << ") == " << repr->size << ") ? 1 : -1 ];\n";
             }
 
+            if( adjust_pack ) m_of << "#pragma pack(pop)\n";
             m_mir_res = nullptr;
         }
 
@@ -2241,6 +2256,8 @@ namespace {
                 union_fields.insert( union_fields.begin(), 0 );
             }
 
+            bool adjust_pack = repr->align < Target_GetCurSpec().m_backend_c.m_aggregate_min_align;
+            if( adjust_pack ) m_of << "#pragma pack(push, 1)\n";
             m_of << "// enum " << p << "\n";
             m_of << "struct e_" << Trans_Mangle(p) << " {\n";
 
@@ -2351,6 +2368,7 @@ namespace {
             size_t exp_size = (repr->size > 0 ? repr->size : (m_options.disallow_empty_structs ? 1 : 0));
             m_of << "typedef char sizeof_assert_" << Trans_Mangle(p) << "[ (sizeof(struct e_" << Trans_Mangle(p) << ") == " << exp_size << ") ? 1 : -1 ];\n";
 
+            if( adjust_pack ) m_of << "#pragma pack(pop)\n";
             m_mir_res = nullptr;
         }
 

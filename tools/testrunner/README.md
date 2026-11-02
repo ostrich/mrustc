@@ -35,3 +35,13 @@ conversion checks: every half encoding, exact widening, finite round trips,
 nearest-even ties, subnormal boundaries, overflow, signed zero and NaNs.
 `CXXFLAGS_EXTRA` and `LINKFLAGS_EXTRA` can enable sanitizers. This checks the
 conversion helpers, not full-precision f128 arithmetic.
+
+`make -C tools/testrunner check-target-options` checks the optional C aggregate
+alignment floor, invalid values, the default and target-file round trips.
+The default is one. Values 1, 2, 4, 8 and 16 are supported; the setting describes
+an actual C ABI and must agree with the selected C compiler. The `aggregate`
+case compares C struct/union layout against mrustc, explicit struct packing,
+explicit alignment and tighter Rust/transparent/array layouts. Test a floor
+above one with a compiler whose C ABI has that floor, not a host compiler with
+an artificial setting. Packed/aligned unions remain an existing front-end
+limitation; this option does not add their missing attribute representation.

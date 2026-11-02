@@ -68,6 +68,7 @@ struct BackendOptsC
     ::std::vector< ::std::string>   m_compiler_opts;
     ::std::vector< ::std::string>   m_linker_opts_pre;
     ::std::vector< ::std::string>   m_linker_opts_post;
+    unsigned m_aggregate_min_align = 1; // Native C struct/union ABI minimum
 };
 struct TargetSpec
 {

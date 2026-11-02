@@ -48,3 +48,7 @@ check-floats:
 	mkdir -p ../../output
 	$(CXX) -std=c++14 -O2 $(CXXFLAGS_EXTRA) -I../../src/include floats.cpp -o ../../output/test-floats $(LINKFLAGS_EXTRA)
 	../../output/test-floats
+
+.PHONY: check-target-options
+check-target-options:
+	python3 target-options.py --mrustc ../../bin/mrustc

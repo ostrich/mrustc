@@ -222,6 +222,17 @@ namespace
                             check_path_length(key_val, 3);
                             rv.m_backend_c.m_emulated_i128 = key_val.value.as_bool();
                         }
+                        else if( key_val.path[2] == "aggregate-min-align" )
+                        {
+                            check_path_length(key_val, 3);
+                            auto value = key_val.value.as_int();
+                            if( value < 1 || value > 16 || (value & (value - 1)) != 0 )
+                            {
+                                ::std::cerr << "ERROR: aggregate-min-align must be a power of two up to 16" << ::std::endl;
+                                exit(1);
+                            }
+                            rv.m_backend_c.m_aggregate_min_align = value;
+                        }
                         else if( key_val.path[2] == "compiler-opts" )
                         {
                             check_path_length(key_val, 3);
@@ -397,6 +408,7 @@ namespace
             << "[backend.c]\n"
             << "variant = \"" << H::c_variant_name(spec.m_backend_c.m_codegen_mode) << "\"\n"
             << "target = \"" << spec.m_backend_c.m_c_compiler << "\"\n"
+            << "aggregate-min-align = " << spec.m_backend_c.m_aggregate_min_align << "\n"
             << "compiler-opts = ["; for(const auto& s : spec.m_backend_c.m_compiler_opts) of << "\"" << s << "\","; of << "]\n"
             << "linker-opts-pre = ["; for(const auto& s : spec.m_backend_c.m_linker_opts_pre) of << "\"" << s << "\","; of << "]\n"
             << "linker-opts-post = ["; for(const auto& s : spec.m_backend_c.m_linker_opts_post) of << "\"" << s << "\","; of << "]\n"
@@ -1392,6 +1404,11 @@ namespace {
             switch(str.m_repr)
             {
             case ::HIR::Struct::Repr::C:
+                // A native ABI may impose a minimum aggregate alignment even
+                // when every field has byte alignment. Explicit packing caps it.
+                forced_alignment = std::max(forced_alignment,
+                    max_alignment ? std::min(max_alignment, g_target.m_backend_c.m_aggregate_min_align)
+                                  : g_target.m_backend_c.m_aggregate_min_align);
                 // No sorting, no packing
                 sorting = StructSorting::None;
                 break;
@@ -2451,6 +2468,11 @@ namespace {
         if( Target_IsDarwinPPC32() && !rv.fields.empty() )
         {
             rv.align = ::std::max(rv.align, darwin_ppc32_first_field_align(sp, resolve, rv.fields[0].ty));
+        }
+        if( unn.m_repr == ::HIR::Union::Repr::C )
+        {
+            rv.align = ::std::max(rv.align,
+                static_cast<size_t>(g_target.m_backend_c.m_aggregate_min_align));
         }
         // Round the size to be a multiple of align
         if( rv.size % rv.align != 0 )
