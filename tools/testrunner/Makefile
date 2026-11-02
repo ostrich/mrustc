@@ -42,3 +42,9 @@ $(OBJDIR)%.o: ../common/%.cpp
 .PHONY: check-codegen
 check-codegen:
 	python3 codegen-tests.py --output ../../output/codegen-tests $(CODEGEN_TEST_ARGS)
+
+.PHONY: check-floats
+check-floats:
+	mkdir -p ../../output
+	$(CXX) -std=c++14 -O2 $(CXXFLAGS_EXTRA) -I../../src/include floats.cpp -o ../../output/test-floats $(LINKFLAGS_EXTRA)
+	../../output/test-floats

@@ -29,3 +29,9 @@ mrustc and must agree with `--cc`. `--compile-only` builds without executing;
 it is useful for separately tested machines and does not establish runtime
 success. The minimal `support.rs` supplies only the language items these test
 fixtures need for Rust 1.90. It is not an alternative core library.
+
+`make -C tools/testrunner check-floats` runs self-contained IEEE representation
+conversion checks: every half encoding, exact widening, finite round trips,
+nearest-even ties, subnormal boundaries, overflow, signed zero and NaNs.
+`CXXFLAGS_EXTRA` and `LINKFLAGS_EXTRA` can enable sanitizers. This checks the
+conversion helpers, not full-precision f128 arithmetic.
