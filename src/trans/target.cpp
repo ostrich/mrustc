@@ -915,7 +915,7 @@ bool Target_GetSizeAndAlignOf(const Span& sp, const StaticTraitResolve& resolve,
         }
     TU_ARMA(Borrow, te) {
         // - Alignment is machine native
-        out_align = g_target.m_arch.m_pointer_bits / 8;
+        out_align = g_target.m_arch.m_alignments.ptr;
         // - Size depends on Sized-nes of the parameter
         // TODO: Handle different types of Unsized (ones with different pointer sizes)
         switch(resolve.metadata_type(sp, te.inner))
@@ -935,7 +935,7 @@ bool Target_GetSizeAndAlignOf(const Span& sp, const StaticTraitResolve& resolve,
         }
     TU_ARMA(Pointer, te) {
         // - Alignment is machine native
-        out_align = g_target.m_arch.m_pointer_bits / 8;
+        out_align = g_target.m_arch.m_alignments.ptr;
         // - Size depends on Sized-nes of the parameter
         switch(resolve.metadata_type(sp, te.inner))
         {
@@ -961,7 +961,7 @@ bool Target_GetSizeAndAlignOf(const Span& sp, const StaticTraitResolve& resolve,
     TU_ARMA(Function, te) {
         // Pointer size
         out_size = g_target.m_arch.m_pointer_bits / 8;
-        out_align = g_target.m_arch.m_pointer_bits / 8;
+        out_align = g_target.m_arch.m_alignments.ptr;
         return true;
         }
     TU_ARMA(NodeType, te) {

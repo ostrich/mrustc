@@ -36,3 +36,9 @@ $(OBJDIR)%.o: ../common/%.cpp
 	$V$(CXX) -o $@ -c $< $(CXXFLAGS) -MMD -MP -MF $@.dep
 
 -include $(OBJS:%.o=%.o.dep)
+
+# Optional ABI/constant tests without target Rust libraries. Cross compiler and
+# runner options can be passed with CODEGEN_TEST_ARGS (see README.md).
+.PHONY: check-codegen
+check-codegen:
+	python3 codegen-tests.py --output ../../output/codegen-tests $(CODEGEN_TEST_ARGS)
